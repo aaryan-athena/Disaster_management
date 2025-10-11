@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel hero-panel">
+  <div class="hero-content">
+    <div class="hero-copy">
+      <h2>Coordinate relief faster with real-time face recognition.</h2>
+      <p class="lead">
+        Seamlessly register survivors, monitor live feeds, and surface the right people in seconds.
+        Built for field teams who need reliable identification during disaster response.
+      </p>
+      <div class="actions hero-actions">
+        <a class="btn primary" href="{{ url_for('register') }}">Register a Person</a>
+        <a class="btn" href="{{ url_for('recognize_page') }}">Recognize via Camera</a>
+        <a class="btn" href="{{ url_for('live_page') }}">Live Recognition</a>
+        <a class="btn" href="{{ url_for('dashboard') }}">View Dashboard</a>
+      </div>
+      <!-- <div class="hero-badges">
+        <span class="badge">FaceNet 512D embeddings</span>
+        <span class="badge">MediaPipe Face Detection</span>
+        <span class="badge">Cloudinary delivery</span>
+      </div> -->
+    </div>
+    <div class="highlight-card">
+      <h3>Why teams use this suite</h3>
+      <ul class="highlight-list">
+        <li>Unified view of registrations and recent detections with precise timestamps.</li>
+        <li>Captures browser-shared coordinates for detections when responders opt in.</li>
+        <li>Responsive UI that adapts from command centers to mobile field kits.</li>
+      </ul>
+      <p class="hint">Threshold configurable. Data securely stored in Firebase.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}

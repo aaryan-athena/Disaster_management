@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h2>Detection Dashboard</h2>
+  <p class="hint">Review live recognition activity and registration details.</p>
+  <div class="stat-bar">
+    <div class="stat">
+      <span class="stat-label">Total Registered</span>
+      <span class="stat-value">{{ summary.total_registered }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Detected At Least Once</span>
+      <span class="stat-value">{{ summary.with_detections }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Never Detected</span>
+      <span class="stat-value">{{ summary.never_detected }}</span>
+    </div>
+  </div>
+</section>
+
+{% if message %}
+<section class="panel {{ 'panel-success' if message.kind == 'success' else 'panel-error' }}">
+  <p>{{ message.text }}</p>
+</section>
+{% endif %}
+
+{% if detected_people %}
+<section class="panel">
+  <h3>Recently Detected People</h3>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Person</th>
+          <th>Snapshot</th>
+          <th>Gender</th>
+          <th>Registered Location</th>
+          <th>Last Seen (IST)</th>
+          <th>Detected Location</th>
+          <th>Coordinates</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for person in detected_people %}
+        {% set detection = person.detection %}
+        <tr>
+          <td>
+            <div class="person-cell">
+              <strong>{{ person.name }}</strong>
+              <small>ID {{ person.id }}</small>
+            </div>
+          </td>
+          <td>
+            {% if person.image_url %}
+            <img class="thumb" src="{{ person.image_url }}" alt="{{ person.name }}" />
+            {% else %}
+            <span class="muted">No image</span>
+            {% endif %}
+          </td>
+          <td>{{ person.gender or 'N/A' }}</td>
+          <td>{{ person.location or 'N/A' }}</td>
+          <td>
+            {% if detection and detection.last_seen_at %}
+              {{ detection.last_seen_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>{{ detection.location if detection and detection.location else 'N/A' }}</td>
+          <td>
+            {% if detection and detection.latitude is not none and detection.longitude is not none %}
+              {{ '%.4f' % detection.latitude }}, {{ '%.4f' % detection.longitude }}
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('delete_person_route', person_id=person.id) }}">
+              <button type="submit" class="btn btn-danger" onclick="return confirm('Delete {{ person.name }}?');">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="panel">
+  <p>No live detections recorded yet.</p>
+</section>
+{% endif %}
+
+{% if undetected_people %}
+<section class="panel">
+  <h3>Registered But Not Detected</h3>
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Person</th>
+          <th>Gender</th>
+          <th>Registered Location</th>
+          <th>Registered At (IST)</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for person in undetected_people %}
+        <tr>
+          <td>
+            <div class="person-cell">
+              <strong>{{ person.name }}</strong>
+              <small>ID {{ person.id }}</small>
+            </div>
+          </td>
+          <td>{{ person.gender or 'N/A' }}</td>
+          <td>{{ person.location or 'N/A' }}</td>
+          <td>
+            {% if person.created_at %}
+              {{ person.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}
+            {% else %}
+              N/A
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('delete_person_route', person_id=person.id) }}">
+              <button type="submit" class="btn btn-danger" onclick="return confirm('Delete {{ person.name }}?');">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h2>Live Recognition</h2>
+  <p class="hint">Streams webcam from server, draws boxes and names. Threshold: {{ threshold }}</p>
+  <div>
+    <img
+      id="stream"
+      data-token="{{ live_token }}"
+      src="{{ url_for('video_feed', token=live_token) }}"
+      alt="Live video stream"
+      style="max-width: 100%; border: 1px solid #ddd;"
+    />
+  </div>
+  <p id="live-location-status" class="hint">Requesting browser location…</p>
+  <p class="hint">If the stream does not start, ensure the server has access to a webcam.</p>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('index') }}">Back</a>
+  </div>
+</section>
+<script>
+  window.liveConfig = {
+    token: "{{ live_token }}",
+    locationEndpoint: "{{ url_for('live_location_update', token=live_token) }}",
+  };
+</script>
+<script src="{{ url_for('static', filename='js/live.js') }}"></script>
+{% endblock %}

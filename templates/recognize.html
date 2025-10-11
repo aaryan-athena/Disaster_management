@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h2>Recognize a Person</h2>
+
+  <div class="grid">
+    <div>
+      <video id="video" autoplay playsinline></video>
+      <div class="actions">
+        <button type="button" class="btn" id="start-camera">Start Camera</button>
+        <button type="button" class="btn" id="capture">Capture</button>
+      </div>
+      <canvas id="canvas" width="640" height="480" hidden></canvas>
+    </div>
+    <div id="result" class="result"></div>
+  </div>
+</section>
+
+<script>
+  const RECOGNIZE_URL = "{{ url_for('api_recognize') }}";
+  const THRESHOLD = {{ threshold|default(0.6) }};
+</script>
+<script src="{{ url_for('static', filename='js/recognize.js') }}"></script>
+{% endblock %}
+

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>People Recognition</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+<header>
+      <div class="header-inner">
+        <div class="brand">
+          <span>DM</span>
+          <div class="brand-copy">
+            <div>Disaster Management Suite</div>
+            <small>Vision-powered response coordination</small>
+          </div>
+        </div>
+        {% set endpoint = request.endpoint %}
+        <nav>
+          <a href="{{ url_for('index') }}" class="{% if endpoint == 'index' %}active{% endif %}">Home</a>
+          <a href="{{ url_for('register') }}" class="{% if endpoint == 'register' %}active{% endif %}">Register</a>
+          <a href="{{ url_for('recognize_page') }}" class="{% if endpoint == 'recognize_page' %}active{% endif %}">Recognize</a>
+          <a href="{{ url_for('live_page') }}" class="{% if endpoint == 'live_page' or endpoint == 'video_feed' %}active{% endif %}">Live</a>
+          <a href="{{ url_for('dashboard') }}" class="{% if endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+    <footer>
+      <div class="footer-inner">
+        <p>&copy; 2025 Disaster Management and Rehabilitation</p>
+        <small>Powered by MediaPipe detection, FaceNet embeddings &amp; Cloudinary delivery.</small>
+      </div>
+    </footer>
+  </body>
+  </html>
+

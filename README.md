@@ -50,10 +50,26 @@ Project Structure
 - `static/js/` — Frontend scripts for webcam capture
 - `static/css/` — Basic styles
 - `data/images/` — Saved user images
+- `uploads/` — Temporary storage for disaster prediction images
+
+Environment Variables
+
+Create a `.env` file with the following:
+
+```
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+GEMINI_API_KEY=your_gemini_api_key
+SIMILARITY_THRESHOLD=0.6
+```
+
+Get your Gemini API key at: https://makersuite.google.com/app/apikey
 
 Notes
 
 - Threshold: default cosine similarity >= 0.6 is considered a match. Adjust in `app.py` (`SIMILARITY_THRESHOLD`).
 - Only one embedding is stored per person. You can extend the DB schema to store multiple images/embeddings per person and use centroid or best-of-N matching.
+- Disaster prediction uses Google's Gemini 2.0 Flash model for image analysis.
 - For production, consider using a WSGI/ASGI server (e.g., gunicorn/waitress) and serving static assets via a CDN or reverse proxy.
 

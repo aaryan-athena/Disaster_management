@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <h2>🌍 Disaster Prediction</h2>
+  <p class="hint">Upload an image to detect and classify the disaster type using AI</p>
+
+  <div class="grid">
+    <div>
+      <div class="upload-area" id="uploadArea">
+        <p>📁 Click or drag an image here</p>
+        <input type="file" id="fileInput" accept="image/*" style="display: none;">
+      </div>
+      
+      <img id="preview" alt="Preview" style="max-width: 100%; max-height: 300px; margin: 20px 0; display: none; border-radius: 8px;">
+      
+      <div class="actions">
+        <button type="button" class="btn" id="predictBtn" disabled>Predict Disaster Type</button>
+      </div>
+      
+      <div id="loading" class="hint" style="display: none; text-align: center; margin-top: 20px;">
+        <p>🔄 Analyzing image...</p>
+      </div>
+    </div>
+
+    <div id="result" class="result" style="display: none;"></div>
+  </div>
+</section>
+
+<style>
+  .upload-area {
+    border: 3px dashed #667eea;
+    border-radius: 10px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-bottom: 20px;
+    background: #f8f9ff;
+  }
+  .upload-area:hover {
+    background: #f0f0ff;
+    border-color: #764ba2;
+  }
+  .upload-area.dragover {
+    background: #e8e9ff;
+    border-color: #764ba2;
+  }
+  .disaster-result {
+    padding: 20px;
+    background: #f8f9ff;
+    border-radius: 10px;
+  }
+  .disaster-type {
+    font-size: 24px;
+    font-weight: bold;
+    color: #667eea;
+    margin-bottom: 10px;
+  }
+  .confidence {
+    font-size: 18px;
+    color: #333;
+    margin-bottom: 10px;
+  }
+  .severity {
+    font-size: 16px;
+    padding: 5px 15px;
+    border-radius: 20px;
+    display: inline-block;
+    margin-bottom: 15px;
+    font-weight: bold;
+  }
+  .severity.low { background: #d4edda; color: #155724; }
+  .severity.medium { background: #fff3cd; color: #856404; }
+  .severity.high { background: #f8d7da; color: #721c24; }
+  .description {
+    margin-top: 15px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    border-left: 4px solid #667eea;
+  }
+</style>
+
+<script>
+  const uploadArea = document.getElementById('uploadArea');
+  const fileInput = document.getElementById('fileInput');
+  const preview = document.getElementById('preview');
+  const predictBtn = document.getElementById('predictBtn');
+  const loading = document.getElementById('loading');
+  const result = document.getElementById('result');
+  
+  let selectedFile = null;
+
+  uploadArea.addEventListener('click', () => fileInput.click());
+  
+  uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+  });
+  
+  uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+  });
+  
+  uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFile(files[0]);
+    }
+  });
+  
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      handleFile(e.target.files[0]);
+    }
+  });
+  
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+      predictBtn.disabled = false;
+      result.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  }
+  
+  predictBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    
+    predictBtn.disabled = true;
+    loading.style.display = 'block';
+    result.style.display = 'none';
+    
+    try {
+      const response = await fetch('/api/predict-disaster', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        result.innerHTML = `<p class="flash error">${data.error}</p>`;
+        result.style.display = 'block';
+      } else {
+        displayResult(data);
+      }
+    } catch (error) {
+      result.innerHTML = `<p class="flash error">Error: ${error.message}</p>`;
+      result.style.display = 'block';
+    } finally {
+      loading.style.display = 'none';
+      predictBtn.disabled = false;
+    }
+  });
+  
+  function displayResult(data) {
+    const disasterEmojis = {
+      'earthquake': '🏚️',
+      'flood': '🌊',
+      'wildfire': '🔥',
+      'hurricane': '🌀',
+      'landslide': '⛰️',
+      'drought': '🏜️',
+      'tornado': '🌪️',
+      'tsunami': '🌊',
+      'volcanic_eruption': '🌋',
+      'none': '✅'
+    };
+    
+    let html = `
+      <div class="disaster-result">
+        <div class="disaster-type">
+          ${disasterEmojis[data.disaster_type] || '⚠️'} 
+          ${data.disaster_type.replace('_', ' ').toUpperCase()}
+        </div>
+        <div class="confidence">
+          Confidence: ${(data.confidence * 100).toFixed(2)}%
+        </div>
+        <div class="severity ${data.severity}">
+          Severity: ${data.severity.toUpperCase()}
+        </div>
+        <div class="description">
+          <strong>Analysis:</strong><br>
+          ${data.description}
+        </div>
+      </div>
+    `;
+    
+    result.innerHTML = html;
+    result.style.display = 'block';
+  }
+</script>
+{% endblock %}

@@ -19,14 +19,31 @@ load_dotenv()
 from db import Person, add_person, delete_person, list_persons, log_detection
 from ml.mediapipe_detector import FaceDetector
 from ml.facenet_embedder import FaceEmbedder
+from werkzeug.utils import secure_filename
+import google.generativeai as genai
+import json
+from PIL import Image as PILImage
 
 
 # Matching threshold (cosine similarity)
 SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD", 0.6))
 
+# Disaster prediction classes
+DISASTER_CLASSES = ['earthquake', 'flood', 'wildfire', 'hurricane', 'landslide', 'drought', 'tornado', 'tsunami', 'volcanic_eruption']
+
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    
+    # Configure upload folder for disaster prediction
+    app.config['UPLOAD_FOLDER'] = 'uploads'
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    
+    # Configure Gemini API for disaster prediction
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_api_key:
+        genai.configure(api_key=gemini_api_key)
 
     # Lazy-init heavy ML components
     detector = FaceDetector(min_confidence=0.5, model_selection=1)
@@ -460,6 +477,100 @@ def create_app() -> Flask:
             return jsonify({"error": "Video feed not available in production"}), 503
         token = request.args.get("token") or ""
         return app.response_class(_gen_mjpeg(token), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+    # --- Disaster Prediction Routes ---
+    def _classify_disaster(image_path: str) -> dict:
+        """Classify disaster type using Gemini Vision API."""
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            raise ValueError("GEMINI_API_KEY not configured in environment variables")
+        
+        # Open image and ensure it's closed after use
+        img = PILImage.open(image_path)
+        try:
+            # Use gemini-2.5-flash for better free tier quota
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            
+            prompt = """Analyze this image and determine if it shows a natural disaster. 
+            
+Classify it into ONE of these categories:
+- earthquake (collapsed buildings, cracked roads, structural damage)
+- flood (water covering streets, submerged areas, water damage)
+- wildfire (flames, smoke, burned areas, fire damage)
+- hurricane (extreme wind damage, storm destruction)
+- landslide (mudslides, collapsed hillsides, debris flow)
+- drought (dried land, cracked earth, water scarcity)
+- tornado (funnel clouds, tornado damage, twisted debris)
+- tsunami (massive waves, coastal flooding, wave damage)
+- volcanic_eruption (lava, volcanic ash, eruption)
+- none (if no disaster is visible)
+
+Respond ONLY with a JSON object in this exact format:
+{
+    "disaster_type": "category_name",
+    "confidence": 0.95,
+    "description": "brief description of what you see",
+    "severity": "low/medium/high"
+}"""
+            
+            response = model.generate_content([prompt, img])
+            
+            try:
+                text = response.text.strip()
+                if text.startswith('```'):
+                    text = text.split('```')[1]
+                    if text.startswith('json'):
+                        text = text[4:]
+                text = text.strip()
+                result = json.loads(text)
+                return result
+            except json.JSONDecodeError:
+                return {
+                    "disaster_type": "unknown",
+                    "confidence": 0.0,
+                    "description": response.text,
+                    "severity": "unknown"
+                }
+        finally:
+            # Explicitly close the image to release the file handle
+            img.close()
+
+    @app.route("/disaster-prediction")
+    def disaster_prediction_page():
+        return render_template("disaster_prediction.html")
+
+    @app.route("/api/predict-disaster", methods=["POST"])
+    def predict_disaster():
+        filepath = None
+        try:
+            if 'file' not in request.files:
+                return jsonify({"error": "No file uploaded"}), 400
+            
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({"error": "No file selected"}), 400
+            
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            
+            try:
+                result = _classify_disaster(filepath)
+                return jsonify(result)
+            except Exception as e:
+                app.logger.exception("Error in disaster prediction")
+                return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+                
+        except Exception as e:
+            app.logger.exception("Error in predict_disaster")
+            return jsonify({"error": str(e)}), 500
+        finally:
+            # Clean up the uploaded file in finally block to ensure it's always deleted
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except Exception as cleanup_error:
+                    app.logger.warning(f"Failed to delete file {filepath}: {cleanup_error}")
 
     return app
 

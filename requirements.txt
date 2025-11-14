@@ -1,8 +1,8 @@
 Flask
 SQLAlchemy
 numpy
-opencv-python
-mediapipe
+opencv-python-headless
+mediapipe==0.10.9
 Pillow
 torch
 torchvision

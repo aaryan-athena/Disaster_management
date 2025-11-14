@@ -280,51 +280,55 @@ def create_app() -> Flask:
 
     @app.route("/api/recognize", methods=["POST"])
     def api_recognize():
-        img = _decode_image_from_request("image")
-        if img is None:
-            return jsonify({"ok": False, "error": "No image received."}), 400
+        try:
+            img = _decode_image_from_request("image")
+            if img is None:
+                return jsonify({"ok": False, "error": "No image received."}), 400
 
-        location_label, latitude, longitude = _extract_location_payload()
+            location_label, latitude, longitude = _extract_location_payload()
 
-        face = detector.crop_face(img, margin=0.25)
-        if face is None:
-            return jsonify({"ok": False, "match": False, "message": "No face detected."}), 200
+            face = detector.crop_face(img, margin=0.25)
+            if face is None:
+                return jsonify({"ok": False, "match": False, "message": "No face detected."}), 200
 
-        emb = embedder.embed(face)
-        if emb is None:
-            return jsonify({"ok": False, "match": False, "message": "Failed to embed face."}), 500
+            emb = embedder.embed(face)
+            if emb is None:
+                return jsonify({"ok": False, "match": False, "message": "Failed to embed face."}), 500
 
-        _refresh_people()
-        if not persons_cache:
-            return jsonify({"ok": True, "match": False, "message": "Database is empty."}), 200
+            _refresh_people()
+            if not persons_cache:
+                return jsonify({"ok": True, "match": False, "message": "Database is empty."}), 200
 
-        best_person, best_score = _best_match(emb)
+            best_person, best_score = _best_match(emb)
 
-        if best_person and best_score >= SIMILARITY_THRESHOLD:
-            _log_detection(best_person, location_label, latitude, longitude)
+            if best_person and best_score >= SIMILARITY_THRESHOLD:
+                _log_detection(best_person, location_label, latitude, longitude)
+                return jsonify(
+                    {
+                        "ok": True,
+                        "match": True,
+                        "score": round(best_score, 4),
+                        "person": {
+                            "id": best_person.id,
+                            "name": best_person.name,
+                            "location": best_person.location,
+                            "gender": best_person.gender,
+                            "image_url": best_person.image_url,
+                        },
+                    }
+                ), 200
+
             return jsonify(
                 {
                     "ok": True,
-                    "match": True,
-                    "score": round(best_score, 4),
-                    "person": {
-                        "id": best_person.id,
-                        "name": best_person.name,
-                        "location": best_person.location,
-                        "gender": best_person.gender,
-                        "image_url": best_person.image_url,
-                    },
+                    "match": False,
+                    "score": round(best_score or -1.0, 4),
+                    "message": "No match found.",
                 }
             ), 200
-
-        return jsonify(
-            {
-                "ok": True,
-                "match": False,
-                "score": round(best_score or -1.0, 4),
-                "message": "No match found.",
-            }
-        ), 200
+        except Exception as e:
+            app.logger.exception("Error in api_recognize")
+            return jsonify({"ok": False, "error": f"Server error: {str(e)}"}), 500
 
     # --- Live video recognition ---
     def _get_live_location(token: Optional[str]) -> Tuple[Optional[str], Optional[float], Optional[float]]:
@@ -420,11 +424,22 @@ def create_app() -> Flask:
 
     @app.route("/live")
     def live_page():
+        # Check if running on a server without camera access
+        is_production = os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+        if is_production:
+            return render_template(
+                "index.html",
+                error="Live video feed is not available in production (requires server camera access). Use the Recognize page instead."
+            )
         token = secrets.token_urlsafe(16)
         return render_template("live.html", threshold=SIMILARITY_THRESHOLD, live_token=token)
 
     @app.route("/video_feed")
     def video_feed():
+        # Check if running on a server without camera access
+        is_production = os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+        if is_production:
+            return jsonify({"error": "Video feed not available in production"}), 503
         token = request.args.get("token") or ""
         return app.response_class(_gen_mjpeg(token), mimetype="multipart/x-mixed-replace; boundary=frame")
 

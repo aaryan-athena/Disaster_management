@@ -20,9 +20,12 @@ def _fixed_image_standardization(img: np.ndarray) -> np.ndarray:
 
 class FaceEmbedder:
     def __init__(self, device: Optional[str] = None):
-        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        # Force CPU for production to reduce memory usage
+        self.device = torch.device("cpu")
         # pretrained='vggface2' gives 512-d embeddings
         self.model = InceptionResnetV1(pretrained='vggface2').eval().to(self.device)
+        # Set to inference mode to reduce memory
+        torch.set_grad_enabled(False)
 
     def embed(self, face_bgr: np.ndarray) -> Optional[np.ndarray]:
         """Return 512-d embedding for the BGR face crop.

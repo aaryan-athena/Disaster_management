@@ -179,6 +179,10 @@ def create_app() -> Flask:
     def index():
         return render_template("index.html")
 
+    @app.route("/health")
+    def health():
+        return jsonify({"status": "ok", "models_loaded": True}), 200
+
     @app.route("/register", methods=["GET", "POST"])
     def register():
         if request.method == "GET":
@@ -281,27 +285,40 @@ def create_app() -> Flask:
     @app.route("/api/recognize", methods=["POST"])
     def api_recognize():
         try:
+            app.logger.info("Recognize request received")
+            
             img = _decode_image_from_request("image")
             if img is None:
+                app.logger.warning("No image decoded from request")
                 return jsonify({"ok": False, "error": "No image received."}), 400
 
+            app.logger.info(f"Image decoded: shape={img.shape}")
             location_label, latitude, longitude = _extract_location_payload()
 
+            app.logger.info("Detecting face...")
             face = detector.crop_face(img, margin=0.25)
             if face is None:
+                app.logger.info("No face detected in image")
                 return jsonify({"ok": False, "match": False, "message": "No face detected."}), 200
 
+            app.logger.info(f"Face detected: shape={face.shape}")
+            app.logger.info("Embedding face...")
             emb = embedder.embed(face)
             if emb is None:
+                app.logger.error("Failed to generate embedding")
                 return jsonify({"ok": False, "match": False, "message": "Failed to embed face."}), 500
 
+            app.logger.info(f"Embedding generated: shape={emb.shape}")
             _refresh_people()
             if not persons_cache:
+                app.logger.info("Database is empty")
                 return jsonify({"ok": True, "match": False, "message": "Database is empty."}), 200
 
+            app.logger.info(f"Matching against {len(persons_cache)} persons")
             best_person, best_score = _best_match(emb)
 
             if best_person and best_score >= SIMILARITY_THRESHOLD:
+                app.logger.info(f"Match found: {best_person.name} with score {best_score}")
                 _log_detection(best_person, location_label, latitude, longitude)
                 return jsonify(
                     {
@@ -318,6 +335,7 @@ def create_app() -> Flask:
                     }
                 ), 200
 
+            app.logger.info(f"No match found. Best score: {best_score}")
             return jsonify(
                 {
                     "ok": True,

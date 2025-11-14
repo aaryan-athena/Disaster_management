@@ -21,6 +21,7 @@
           <a href="{{ url_for('index') }}" class="{% if endpoint == 'index' %}active{% endif %}">Home</a>
           <a href="{{ url_for('register') }}" class="{% if endpoint == 'register' %}active{% endif %}">Register</a>
           <a href="{{ url_for('recognize_page') }}" class="{% if endpoint == 'recognize_page' %}active{% endif %}">Recognize</a>
+          <a href="{{ url_for('live_page') }}" class="{% if endpoint == 'live_page' or endpoint == 'video_feed' %}active{% endif %}">Live</a>
           <a href="{{ url_for('disaster_prediction_page') }}" class="{% if endpoint == 'disaster_prediction_page' %}active{% endif %}">Disaster AI</a>
           <a href="{{ url_for('dashboard') }}" class="{% if endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
         </nav>

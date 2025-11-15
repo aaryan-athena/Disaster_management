@@ -19,6 +19,7 @@ load_dotenv()
 from db import Person, add_person, delete_person, list_persons, log_detection
 from ml.mediapipe_detector import FaceDetector
 from ml.facenet_embedder import FaceEmbedder
+from ml.pose_detector import PoseDetector
 from werkzeug.utils import secure_filename
 import google.generativeai as genai
 import json
@@ -48,6 +49,7 @@ def create_app() -> Flask:
     # Lazy-init heavy ML components
     detector = FaceDetector(min_confidence=0.5, model_selection=1)
     embedder = FaceEmbedder()
+    pose_detector = PoseDetector(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     detection_refresh: Dict[str, datetime] = {}
     persons_cache: List[Person] = []
@@ -385,43 +387,122 @@ def create_app() -> Flask:
         longitude: Optional[float],
     ) -> np.ndarray:
         _refresh_people()
-        detections = detector.detect(frame_bgr)
-        for det in detections:
-            x, y, w, h = det["bbox"]
-            mx, my = int(w * 0.15), int(h * 0.15)
-            x0 = max(0, x - mx)
-            y0 = max(0, y - my)
-            x1 = min(frame_bgr.shape[1], x + w + mx)
-            y1 = min(frame_bgr.shape[0], y + h + my)
-            face = frame_bgr[y0:y1, x0:x1]
-            label = "Person"
-            color = (0, 190, 255)
-            if face.size > 0:
-                emb = embedder.embed(face)
-                if emb is not None:
-                    best_person, score = _best_match(emb)
-                    if best_person is not None and score >= SIMILARITY_THRESHOLD:
-                        label = f"{best_person.name} ({score:.2f})"
-                        color = (80, 200, 120)
-                        _log_detection(best_person, location_label, latitude, longitude)
-                    else:
-                        label = f"Unknown ({score:.2f})"
-                        color = (0, 190, 255)
-            cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), color, 2)
-            cv2.rectangle(frame_bgr, (x, y - 24), (x + max(120, w), y), color, -1)
-            cv2.putText(
-                frame_bgr,
-                label,
-                (x + 4, y - 6),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 0, 0),
-                1,
-                cv2.LINE_AA,
-            )
-        hint = f"Threshold: {SIMILARITY_THRESHOLD:.2f} | q to stop"
+        
+        # First, try pose detection for full body
+        pose_result = pose_detector.detect(frame_bgr)
+        
+        if pose_result is not None:
+            # Full body detected - use pose estimation
+            pose_state = pose_result['pose_state']
+            face_visible = pose_result['face_visible']
+            
+            # Draw pose landmarks
+            frame_bgr = pose_detector.draw_pose(frame_bgr, pose_result)
+            
+            # Determine color based on pose state
+            if pose_state == "fallen":
+                color = (0, 0, 255)  # Red for fallen
+                status_text = "⚠️ FALLEN"
+            elif pose_state == "sitting":
+                color = (0, 165, 255)  # Orange for sitting
+                status_text = "Sitting"
+            else:  # standing
+                color = (0, 255, 0)  # Green for standing
+                status_text = "Standing"
+            
+            # If face is visible, try face recognition
+            label = status_text
+            if face_visible and pose_result['bbox'] is not None:
+                x, y, w, h = pose_result['bbox']
+                # Try to detect and recognize face
+                face_detections = detector.detect(frame_bgr)
+                if face_detections:
+                    # Use the first detected face
+                    face_det = face_detections[0]
+                    fx, fy, fw, fh = face_det["bbox"]
+                    mx, my = int(fw * 0.15), int(fh * 0.15)
+                    fx0 = max(0, fx - mx)
+                    fy0 = max(0, fy - my)
+                    fx1 = min(frame_bgr.shape[1], fx + fw + mx)
+                    fy1 = min(frame_bgr.shape[0], fy + fh + my)
+                    face = frame_bgr[fy0:fy1, fx0:fx1]
+                    
+                    if face.size > 0:
+                        emb = embedder.embed(face)
+                        if emb is not None:
+                            best_person, score = _best_match(emb)
+                            if best_person is not None and score >= SIMILARITY_THRESHOLD:
+                                label = f"{best_person.name} - {status_text} ({score:.2f})"
+                                if pose_state == "fallen":
+                                    color = (0, 0, 255)  # Keep red for fallen
+                                else:
+                                    color = (80, 200, 120)  # Green for recognized
+                                _log_detection(best_person, location_label, latitude, longitude)
+                            else:
+                                label = f"Unknown - {status_text} ({score:.2f})"
+            
+            # Draw bounding box and label
+            if pose_result['bbox'] is not None:
+                x, y, w, h = pose_result['bbox']
+                cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), color, 2)
+                
+                # Draw label background
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                cv2.rectangle(frame_bgr, (x, y - 30), (x + label_size[0] + 10, y), color, -1)
+                cv2.putText(
+                    frame_bgr,
+                    label,
+                    (x + 5, y - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+        else:
+            # No full body detected - fall back to face detection only
+            face_detections = detector.detect(frame_bgr)
+            for det in face_detections:
+                x, y, w, h = det["bbox"]
+                mx, my = int(w * 0.15), int(h * 0.15)
+                x0 = max(0, x - mx)
+                y0 = max(0, y - my)
+                x1 = min(frame_bgr.shape[1], x + w + mx)
+                y1 = min(frame_bgr.shape[0], y + h + my)
+                face = frame_bgr[y0:y1, x0:x1]
+                label = "Person (Face Only)"
+                color = (0, 190, 255)
+                
+                if face.size > 0:
+                    emb = embedder.embed(face)
+                    if emb is not None:
+                        best_person, score = _best_match(emb)
+                        if best_person is not None and score >= SIMILARITY_THRESHOLD:
+                            label = f"{best_person.name} ({score:.2f})"
+                            color = (80, 200, 120)
+                            _log_detection(best_person, location_label, latitude, longitude)
+                        else:
+                            label = f"Unknown ({score:.2f})"
+                            color = (0, 190, 255)
+                
+                cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), color, 2)
+                cv2.rectangle(frame_bgr, (x, y - 24), (x + max(150, w), y), color, -1)
+                cv2.putText(
+                    frame_bgr,
+                    label,
+                    (x + 4, y - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 0, 0),
+                    1,
+                    cv2.LINE_AA,
+                )
+        
+        # Draw info text
+        hint = f"Threshold: {SIMILARITY_THRESHOLD:.2f} | Pose + Face Detection"
         cv2.putText(frame_bgr, hint, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (30, 30, 30), 3, cv2.LINE_AA)
         cv2.putText(frame_bgr, hint, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        
         return frame_bgr
 
     def _gen_mjpeg(token: Optional[str]):

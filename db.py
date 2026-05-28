@@ -65,23 +65,32 @@ def _ensure_firestore() -> firestore.Client:
         return _client
 
     if not firebase_admin._apps:
-        # FIREBASE_CREDENTIALS_JSON  — raw JSON string (use in Docker / HF Spaces)
-        # FIREBASE_CREDENTIALS       — path to a local JSON file  (use in local dev)
-        cred_json_str = os.environ.get("FIREBASE_CREDENTIALS_JSON")
-        if cred_json_str:
-            cred = credentials.Certificate(json.loads(cred_json_str))
+        # Accept credentials in any of these forms:
+        #   FIREBASE_CREDENTIALS_JSON = raw JSON string  (recommended for Docker/HF)
+        #   FIREBASE_CREDENTIALS      = raw JSON string  (if user pasted JSON here)
+        #   FIREBASE_CREDENTIALS      = /path/to/file    (local dev with a file)
+        raw = (
+            os.environ.get("FIREBASE_CREDENTIALS_JSON")
+            or os.environ.get("FIREBASE_CREDENTIALS")
+            or ""
+        ).strip()
+
+        if not raw:
+            raise RuntimeError(
+                "Firebase credentials are not configured. "
+                "Set FIREBASE_CREDENTIALS_JSON to the JSON content of your "
+                "service-account key in the HF Spaces secrets panel."
+            )
+
+        if raw.startswith("{"):
+            # Value is a JSON string — parse it directly
+            cred = credentials.Certificate(json.loads(raw))
         else:
-            cred_path = os.environ.get("FIREBASE_CREDENTIALS")
-            if not cred_path:
-                raise RuntimeError(
-                    "Set FIREBASE_CREDENTIALS_JSON (JSON string) or "
-                    "FIREBASE_CREDENTIALS (file path) to initialize Firebase."
-                )
-            if not os.path.exists(cred_path):
-                raise FileNotFoundError(
-                    f"Firebase credentials file not found: {cred_path}"
-                )
-            cred = credentials.Certificate(cred_path)
+            # Value is a file path — used in local development
+            if not os.path.exists(raw):
+                raise FileNotFoundError(f"Firebase credentials file not found: {raw}")
+            cred = credentials.Certificate(raw)
+
         firebase_admin.initialize_app(cred)
     _client = firestore.client()
     return _client

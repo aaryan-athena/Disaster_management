@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Ensure /app is always on Python's module search path so gunicorn can find
+# local packages like `ml/` and `db.py` regardless of how it is invoked.
+ENV PYTHONPATH=/app
+
 # Install Python deps first — better layer caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \

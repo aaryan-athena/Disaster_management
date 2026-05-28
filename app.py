@@ -73,6 +73,44 @@ class _PiFrameBuffer:
 
 _pi_frame_buffer = _PiFrameBuffer()
 
+# ── Lazy model singletons ─────────────────────────────────────────────────────
+# Models are created on first use, not at startup, so gunicorn boots under the
+# Render free-tier 512 MB limit without loading PyTorch / MediaPipe upfront.
+_detector: Optional["FaceDetector"] = None
+_embedder: Optional["FaceEmbedder"] = None
+_poser: Optional["PoseDetector"] = None
+_model_lock = threading.Lock()
+
+
+def _get_detector() -> "FaceDetector":
+    global _detector
+    if _detector is None:
+        with _model_lock:
+            if _detector is None:
+                _detector = FaceDetector(min_confidence=0.5, model_selection=1)
+    return _detector
+
+
+def _get_embedder() -> "FaceEmbedder":
+    global _embedder
+    if _embedder is None:
+        with _model_lock:
+            if _embedder is None:
+                _embedder = FaceEmbedder()
+    return _embedder
+
+
+def _get_poser() -> "PoseDetector":
+    global _poser
+    if _poser is None:
+        with _model_lock:
+            if _poser is None:
+                _poser = PoseDetector(
+                    min_detection_confidence=0.5, min_tracking_confidence=0.5
+                )
+    return _poser
+
+
 # Disaster prediction classes
 DISASTER_CLASSES = ['earthquake', 'flood', 'wildfire', 'hurricane', 'landslide', 'drought', 'tornado', 'tsunami', 'volcanic_eruption']
 
@@ -89,11 +127,6 @@ def create_app() -> Flask:
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
-
-    # Lazy-init heavy ML components
-    detector = FaceDetector(min_confidence=0.5, model_selection=1)
-    embedder = FaceEmbedder()
-    pose_detector = PoseDetector(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     detection_refresh: Dict[str, datetime] = {}
     persons_cache: List[Person] = []
@@ -261,11 +294,11 @@ def create_app() -> Flask:
         if img is None:
             return render_template("register.html", error="No image received."), 400
 
-        face = detector.crop_face(img, margin=0.25)
+        face = _get_detector().crop_face(img, margin=0.25)
         if face is None:
             return render_template("register.html", error="No face detected. Try again."), 400
 
-        emb = embedder.embed(face)
+        emb = _get_embedder().embed(face)
         if emb is None:
             return render_template("register.html", error="Failed to embed face."), 500
 
@@ -359,14 +392,14 @@ def create_app() -> Flask:
             location_label, latitude, longitude = _extract_location_payload()
 
             app.logger.info("Detecting face...")
-            face = detector.crop_face(img, margin=0.25)
+            face = _get_detector().crop_face(img, margin=0.25)
             if face is None:
                 app.logger.info("No face detected in image")
                 return jsonify({"ok": False, "match": False, "message": "No face detected."}), 200
 
             app.logger.info(f"Face detected: shape={face.shape}")
             app.logger.info("Embedding face...")
-            emb = embedder.embed(face)
+            emb = _get_embedder().embed(face)
             if emb is None:
                 app.logger.error("Failed to generate embedding")
                 return jsonify({"ok": False, "match": False, "message": "Failed to embed face."}), 500
@@ -433,15 +466,15 @@ def create_app() -> Flask:
         _refresh_people()
         
         # First, try pose detection for full body
-        pose_result = pose_detector.detect(frame_bgr)
-        
+        pose_result = _get_poser().detect(frame_bgr)
+
         if pose_result is not None:
             # Full body detected - use pose estimation
             pose_state = pose_result['pose_state']
             face_visible = pose_result['face_visible']
-            
+
             # Draw pose landmarks
-            frame_bgr = pose_detector.draw_pose(frame_bgr, pose_result)
+            frame_bgr = _get_poser().draw_pose(frame_bgr, pose_result)
             
             # Determine color based on pose state
             if pose_state == "fallen":
@@ -459,7 +492,7 @@ def create_app() -> Flask:
             if face_visible and pose_result['bbox'] is not None:
                 x, y, w, h = pose_result['bbox']
                 # Try to detect and recognize face
-                face_detections = detector.detect(frame_bgr)
+                face_detections = _get_detector().detect(frame_bgr)
                 if face_detections:
                     # Use the first detected face
                     face_det = face_detections[0]
@@ -470,9 +503,9 @@ def create_app() -> Flask:
                     fx1 = min(frame_bgr.shape[1], fx + fw + mx)
                     fy1 = min(frame_bgr.shape[0], fy + fh + my)
                     face = frame_bgr[fy0:fy1, fx0:fx1]
-                    
+
                     if face.size > 0:
-                        emb = embedder.embed(face)
+                        emb = _get_embedder().embed(face)
                         if emb is not None:
                             best_person, score = _best_match(emb)
                             if best_person is not None and score >= SIMILARITY_THRESHOLD:
@@ -505,7 +538,7 @@ def create_app() -> Flask:
                 )
         else:
             # No full body detected - fall back to face detection only
-            face_detections = detector.detect(frame_bgr)
+            face_detections = _get_detector().detect(frame_bgr)
             for det in face_detections:
                 x, y, w, h = det["bbox"]
                 mx, my = int(w * 0.15), int(h * 0.15)
@@ -516,9 +549,9 @@ def create_app() -> Flask:
                 face = frame_bgr[y0:y1, x0:x1]
                 label = "Person (Face Only)"
                 color = (0, 190, 255)
-                
+
                 if face.size > 0:
-                    emb = embedder.embed(face)
+                    emb = _get_embedder().embed(face)
                     if emb is not None:
                         best_person, score = _best_match(emb)
                         if best_person is not None and score >= SIMILARITY_THRESHOLD:

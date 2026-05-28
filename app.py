@@ -683,17 +683,6 @@ def create_app() -> Flask:
 
     @app.route("/live")
     def live_page():
-        is_production = bool(
-            os.environ.get("RENDER")
-            or os.environ.get("RAILWAY_ENVIRONMENT")
-            or os.environ.get("SPACE_ID")  # HuggingFace Spaces
-        )
-        pi_ready = PI_AUTH_TOKEN or PI_STREAM_URL
-        if is_production and not pi_ready:
-            return render_template(
-                "index.html",
-                error="Live video feed requires a Raspberry Pi. Set PI_AUTH_TOKEN in the server environment and run stream_client.py on your Pi."
-            )
         token = secrets.token_urlsafe(16)
         return render_template(
             "live.html",
@@ -701,6 +690,7 @@ def create_app() -> Flask:
             live_token=token,
             pi_stream_url=PI_STREAM_URL,
             pi_push_mode=bool(PI_AUTH_TOKEN),
+            pi_not_configured=not bool(PI_AUTH_TOKEN or PI_STREAM_URL),
         )
 
     @app.route("/video_feed")

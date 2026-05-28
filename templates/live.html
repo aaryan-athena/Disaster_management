@@ -22,6 +22,16 @@
     {% endif %}
   </div>
 
+  {% if pi_not_configured %}
+  <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem;">
+    <strong>Pi not configured.</strong>
+    Add <code>PI_AUTH_TOKEN</code> to your HuggingFace Space secrets
+    (Settings → Variables and Secrets), then restart the Space.
+    Use this token value:
+    <br><br>
+    <code style="word-break:break-all;">9e506b1ea76cc960a20aa8b9056ed0d6aeaccc6b45b11b77885d72ddfaef6411</code>
+  </div>
+  {% else %}
   <div>
     <img
       id="stream"
@@ -32,6 +42,7 @@
     />
     <p id="stream-status" class="hint" style="margin-top:.4rem;"></p>
   </div>
+  {% endif %}
 
   <p id="live-location-status" class="hint">Requesting browser location…</p>
 

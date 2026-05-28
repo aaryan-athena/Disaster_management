@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -64,14 +65,23 @@ def _ensure_firestore() -> firestore.Client:
         return _client
 
     if not firebase_admin._apps:
-        cred_path = os.environ.get("FIREBASE_CREDENTIALS")
-        if not cred_path:
-            raise RuntimeError(
-                "FIREBASE_CREDENTIALS environment variable is required to initialize Firebase."
-            )
-        if not os.path.exists(cred_path):
-            raise FileNotFoundError(f"Firebase credentials file not found: {cred_path}")
-        cred = credentials.Certificate(cred_path)
+        # FIREBASE_CREDENTIALS_JSON  — raw JSON string (use in Docker / HF Spaces)
+        # FIREBASE_CREDENTIALS       — path to a local JSON file  (use in local dev)
+        cred_json_str = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+        if cred_json_str:
+            cred = credentials.Certificate(json.loads(cred_json_str))
+        else:
+            cred_path = os.environ.get("FIREBASE_CREDENTIALS")
+            if not cred_path:
+                raise RuntimeError(
+                    "Set FIREBASE_CREDENTIALS_JSON (JSON string) or "
+                    "FIREBASE_CREDENTIALS (file path) to initialize Firebase."
+                )
+            if not os.path.exists(cred_path):
+                raise FileNotFoundError(
+                    f"Firebase credentials file not found: {cred_path}"
+                )
+            cred = credentials.Certificate(cred_path)
         firebase_admin.initialize_app(cred)
     _client = firestore.client()
     return _client

@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git/
+.gitignore
+uploads/
+docs/
+raspberry_pi/
+render.yaml
+*.md

@@ -1,4 +1,14 @@
-People Recognition (MediaPipe + FaceNet)
+---
+title: Disaster Management System
+emoji: 🚨
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+# Disaster Management System — People Recognition (MediaPipe + FaceNet)
 
 Overview
 

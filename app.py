@@ -584,7 +584,9 @@ def create_app() -> Flask:
 
     def _gen_mjpeg(token: Optional[str]):
         is_production = bool(
-            os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+            os.environ.get("RENDER")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+            or os.environ.get("SPACE_ID")  # HuggingFace Spaces
         )
 
         # ── Deployed mode: Pi pushes frames via POST /api/pi_frame ──────────
@@ -682,7 +684,9 @@ def create_app() -> Flask:
     @app.route("/live")
     def live_page():
         is_production = bool(
-            os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+            os.environ.get("RENDER")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+            or os.environ.get("SPACE_ID")  # HuggingFace Spaces
         )
         pi_ready = PI_AUTH_TOKEN or PI_STREAM_URL
         if is_production and not pi_ready:
@@ -702,7 +706,9 @@ def create_app() -> Flask:
     @app.route("/video_feed")
     def video_feed():
         is_production = bool(
-            os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+            os.environ.get("RENDER")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+            or os.environ.get("SPACE_ID")  # HuggingFace Spaces
         )
         pi_ready = PI_AUTH_TOKEN or PI_STREAM_URL
         if is_production and not pi_ready:

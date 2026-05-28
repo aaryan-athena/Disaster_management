@@ -73,42 +73,41 @@ class _PiFrameBuffer:
 
 _pi_frame_buffer = _PiFrameBuffer()
 
-# ── Lazy model singletons ─────────────────────────────────────────────────────
-# Models are created on first use, not at startup, so gunicorn boots under the
-# Render free-tier 512 MB limit without loading PyTorch / MediaPipe upfront.
-_detector: Optional["FaceDetector"] = None
-_embedder: Optional["FaceEmbedder"] = None
-_poser: Optional["PoseDetector"] = None
-_model_lock = threading.Lock()
+# ── Model storage ─────────────────────────────────────────────────────────────
+# MediaPipe solutions maintain internal mutable timestamp state and are NOT
+# thread-safe.  Each gunicorn thread must have its own FaceDetector and
+# PoseDetector instance — we use threading.local() for that.
+#
+# FaceEmbedder (PyTorch) performs a stateless forward pass on CPU and IS
+# thread-safe, so a single shared singleton is fine there.
+
+_thread_local = threading.local()   # per-thread MediaPipe instances
+
+_embedder_instance: Optional["FaceEmbedder"] = None
+_embedder_lock = threading.Lock()
 
 
 def _get_detector() -> "FaceDetector":
-    global _detector
-    if _detector is None:
-        with _model_lock:
-            if _detector is None:
-                _detector = FaceDetector(min_confidence=0.5, model_selection=1)
-    return _detector
+    if not hasattr(_thread_local, "detector"):
+        _thread_local.detector = FaceDetector(min_confidence=0.5, model_selection=1)
+    return _thread_local.detector
 
 
 def _get_embedder() -> "FaceEmbedder":
-    global _embedder
-    if _embedder is None:
-        with _model_lock:
-            if _embedder is None:
-                _embedder = FaceEmbedder()
-    return _embedder
+    global _embedder_instance
+    if _embedder_instance is None:
+        with _embedder_lock:
+            if _embedder_instance is None:
+                _embedder_instance = FaceEmbedder()
+    return _embedder_instance
 
 
 def _get_poser() -> "PoseDetector":
-    global _poser
-    if _poser is None:
-        with _model_lock:
-            if _poser is None:
-                _poser = PoseDetector(
-                    min_detection_confidence=0.5, min_tracking_confidence=0.5
-                )
-    return _poser
+    if not hasattr(_thread_local, "poser"):
+        _thread_local.poser = PoseDetector(
+            min_detection_confidence=0.5, min_tracking_confidence=0.5
+        )
+    return _thread_local.poser
 
 
 # Disaster prediction classes

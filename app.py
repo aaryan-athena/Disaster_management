@@ -558,12 +558,16 @@ def create_app() -> Flask:
         # Use the push buffer when running in production (no local camera) OR
         # when the Pi has already started pushing frames.
         if is_production or _pi_frame_buffer.is_live or PI_AUTH_TOKEN:
-            while True:
-                jpg = _pi_frame_buffer.wait(timeout=5.0)
+            # Allow up to 12 consecutive misses (12 × 10 s = 2 min) before
+            # closing the stream.  This keeps the MJPEG connection alive
+            # through Render cold-starts and brief Pi reconnections.
+            misses = 0
+            while misses < 12:
+                jpg = _pi_frame_buffer.wait(timeout=10.0)
                 if jpg is None:
-                    # Pi has not pushed a frame in 5 s — end the stream so the
-                    # browser can show a "disconnected" state.
-                    break
+                    misses += 1
+                    continue
+                misses = 0
                 nparr = np.frombuffer(jpg, np.uint8)
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 if frame is None:

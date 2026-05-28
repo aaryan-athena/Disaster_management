@@ -29,11 +29,8 @@
       src="{{ url_for('video_feed', token=live_token) }}"
       alt="Live video stream"
       style="max-width:100%;border:1px solid #ddd;"
-      onerror="document.getElementById('stream-error').style.display='block'"
     />
-    <p id="stream-error" style="display:none;color:#dc2626;">
-      Stream unavailable — make sure the Raspberry Pi is running <code>stream_client.py</code> and connected to the internet.
-    </p>
+    <p id="stream-status" class="hint" style="margin-top:.4rem;"></p>
   </div>
 
   <p id="live-location-status" class="hint">Requesting browser location…</p>
@@ -55,15 +52,41 @@
 
 {% if pi_push_mode %}
 <script>
-  // Poll Pi connection status and update the badge.
-  (function pollPiStatus() {
-    const badge = document.getElementById('pi-badge');
-    if (!badge) return;
+(function() {
+  const img       = document.getElementById('stream');
+  const badge     = document.getElementById('pi-badge');
+  const statusEl  = document.getElementById('stream-status');
+  const feedBase  = "{{ url_for('video_feed') }}";
+  const token     = window.liveConfig.token;
+  const statusUrl = window.liveConfig.piStatusEndpoint;
 
-    function update() {
-      fetch(window.liveConfig.piStatusEndpoint)
-        .then(r => r.json())
-        .then(data => {
+  let reconnectTimer = null;
+
+  function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+  }
+
+  function reloadStream() {
+    // Append a cache-buster so the browser opens a fresh MJPEG connection.
+    img.src = feedBase + '?token=' + token + '&_t=' + Date.now();
+    setStatus('');
+  }
+
+  // Reconnect automatically whenever the MJPEG stream ends or errors.
+  img.addEventListener('error', function() {
+    setStatus('Stream interrupted — reconnecting in 8 s…');
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(reloadStream, 8000);
+  });
+
+  // Poll /api/pi_status to update the badge and trigger reconnect when the
+  // Pi comes online after the page was already loaded.
+  let wasLive = false;
+  function pollStatus() {
+    fetch(statusUrl)
+      .then(r => r.json())
+      .then(function(data) {
+        if (badge) {
           if (data.live) {
             badge.textContent = 'Pi Connected';
             badge.style.background = '#d1fae5';
@@ -73,17 +96,26 @@
             badge.style.background = '#fef3c7';
             badge.style.color = '#92400e';
           }
-        })
-        .catch(() => {
-          badge.textContent = 'Status unknown';
+        }
+        // If Pi just came online and stream is not already running, reload.
+        if (data.live && !wasLive) {
+          clearTimeout(reconnectTimer);
+          reloadStream();
+        }
+        wasLive = data.live;
+      })
+      .catch(function() {
+        if (badge) {
+          badge.textContent = 'Server unreachable';
           badge.style.background = '#fee2e2';
           badge.style.color = '#991b1b';
-        });
-    }
+        }
+      });
+  }
 
-    update();
-    setInterval(update, 3000);
-  })();
+  pollStatus();
+  setInterval(pollStatus, 4000);
+})();
 </script>
 {% endif %}
 {% endblock %}

@@ -2,27 +2,88 @@
 {% block content %}
 <section class="panel">
   <h2>Live Recognition</h2>
-  <p class="hint">Streams webcam from server, draws boxes and names. Threshold: {{ threshold }}</p>
+
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:.5rem;">
+    {% if pi_push_mode %}
+    <span class="hint">Source: <strong>Raspberry Pi (push mode)</strong></span>
+    {% elif pi_stream_url %}
+    <span class="hint">Source: <strong>Raspberry Pi</strong> &mdash; <code>{{ pi_stream_url }}</code></span>
+    {% else %}
+    <span class="hint">Source: <strong>Server webcam</strong></span>
+    {% endif %}
+    <span class="hint">&nbsp;|&nbsp; Threshold: {{ threshold }}</span>
+
+    {% if pi_push_mode %}
+    <span id="pi-badge" style="
+        display:inline-block;padding:.2rem .7rem;border-radius:999px;font-size:.8rem;font-weight:600;
+        background:#fef3c7;color:#92400e;">
+      Waiting for Pi…
+    </span>
+    {% endif %}
+  </div>
+
   <div>
     <img
       id="stream"
       data-token="{{ live_token }}"
       src="{{ url_for('video_feed', token=live_token) }}"
       alt="Live video stream"
-      style="max-width: 100%; border: 1px solid #ddd;"
+      style="max-width:100%;border:1px solid #ddd;"
+      onerror="document.getElementById('stream-error').style.display='block'"
     />
+    <p id="stream-error" style="display:none;color:#dc2626;">
+      Stream unavailable — make sure the Raspberry Pi is running <code>stream_client.py</code> and connected to the internet.
+    </p>
   </div>
+
   <p id="live-location-status" class="hint">Requesting browser location…</p>
-  <p class="hint">If the stream does not start, ensure the server has access to a webcam.</p>
+
   <div class="actions">
     <a class="btn" href="{{ url_for('index') }}">Back</a>
   </div>
 </section>
+
 <script>
   window.liveConfig = {
     token: "{{ live_token }}",
     locationEndpoint: "{{ url_for('live_location_update', token=live_token) }}",
+    piPushMode: {{ 'true' if pi_push_mode else 'false' }},
+    piStatusEndpoint: "{{ url_for('pi_status') }}",
   };
 </script>
 <script src="{{ url_for('static', filename='js/live.js') }}"></script>
+
+{% if pi_push_mode %}
+<script>
+  // Poll Pi connection status and update the badge.
+  (function pollPiStatus() {
+    const badge = document.getElementById('pi-badge');
+    if (!badge) return;
+
+    function update() {
+      fetch(window.liveConfig.piStatusEndpoint)
+        .then(r => r.json())
+        .then(data => {
+          if (data.live) {
+            badge.textContent = 'Pi Connected';
+            badge.style.background = '#d1fae5';
+            badge.style.color = '#065f46';
+          } else {
+            badge.textContent = 'Waiting for Pi…';
+            badge.style.background = '#fef3c7';
+            badge.style.color = '#92400e';
+          }
+        })
+        .catch(() => {
+          badge.textContent = 'Status unknown';
+          badge.style.background = '#fee2e2';
+          badge.style.color = '#991b1b';
+        });
+    }
+
+    update();
+    setInterval(update, 3000);
+  })();
+</script>
+{% endif %}
 {% endblock %}

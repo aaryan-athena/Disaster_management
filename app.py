@@ -4,6 +4,8 @@ import base64
 import io
 import os
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -28,6 +30,48 @@ from PIL import Image as PILImage
 
 # Matching threshold (cosine similarity)
 SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD", 0.6))
+
+# Raspberry Pi MJPEG stream URL (e.g. http://192.168.1.42:8000/stream).
+# Used only on a local network where the server can pull from the Pi.
+PI_STREAM_URL: str = os.environ.get("PI_STREAM_URL", "").strip()
+
+# Secret token the Pi must send in X-Pi-Token header when pushing frames.
+PI_AUTH_TOKEN: str = os.environ.get("PI_AUTH_TOKEN", "").strip()
+
+
+class _PiFrameBuffer:
+    """Thread-safe store for the latest JPEG frame pushed by the Raspberry Pi.
+
+    Server threads waiting for frames call ``wait()``; the Pi's POST handler
+    calls ``push()``.  All waiters are woken on every push so each MJPEG
+    consumer gets the same frame and naturally drops any it can't process in
+    time.
+    """
+
+    def __init__(self) -> None:
+        self._frame: bytes | None = None
+        self._pushed_at: float = 0.0
+        self._cond = threading.Condition()
+
+    def push(self, jpg: bytes) -> None:
+        with self._cond:
+            self._frame = jpg
+            self._pushed_at = time.monotonic()
+            self._cond.notify_all()
+
+    def wait(self, timeout: float = 5.0) -> bytes | None:
+        """Block until a new frame arrives or *timeout* seconds elapse."""
+        with self._cond:
+            self._cond.wait(timeout=timeout)
+            return self._frame
+
+    @property
+    def is_live(self) -> bool:
+        """True when the Pi pushed a frame in the last 10 seconds."""
+        return self._frame is not None and (time.monotonic() - self._pushed_at) < 10.0
+
+
+_pi_frame_buffer = _PiFrameBuffer()
 
 # Disaster prediction classes
 DISASTER_CLASSES = ['earthquake', 'flood', 'wildfire', 'hurricane', 'landslide', 'drought', 'tornado', 'tsunami', 'volcanic_eruption']
@@ -506,23 +550,55 @@ def create_app() -> Flask:
         return frame_bgr
 
     def _gen_mjpeg(token: Optional[str]):
-        cap = cv2.VideoCapture(0)
+        is_production = bool(
+            os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+        )
+
+        # ── Deployed mode: Pi pushes frames via POST /api/pi_frame ──────────
+        # Use the push buffer when running in production (no local camera) OR
+        # when the Pi has already started pushing frames.
+        if is_production or _pi_frame_buffer.is_live or PI_AUTH_TOKEN:
+            while True:
+                jpg = _pi_frame_buffer.wait(timeout=5.0)
+                if jpg is None:
+                    # Pi has not pushed a frame in 5 s — end the stream so the
+                    # browser can show a "disconnected" state.
+                    break
+                nparr = np.frombuffer(jpg, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is None:
+                    continue
+                location_label, latitude, longitude = _get_live_location(token)
+                frame = _annotate_frame(frame, location_label, latitude, longitude)
+                ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if not ok:
+                    continue
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                )
+            return
+
+        # ── Local mode: pull from Pi MJPEG server URL or local webcam ────────
+        source: str | int = PI_STREAM_URL if PI_STREAM_URL else 0
+        cap = cv2.VideoCapture(source)
         try:
             if not cap.isOpened():
-                raise RuntimeError("Cannot open camera (index 0)")
+                raise RuntimeError(
+                    f"Cannot open video source: {source!r}"
+                )
             while True:
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     break
                 location_label, latitude, longitude = _get_live_location(token)
                 frame = _annotate_frame(frame, location_label, latitude, longitude)
-                ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                 if not ok:
                     continue
-                jpg = buffer.tobytes()
                 yield (
                     b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
                 )
         finally:
             cap.release()
@@ -538,26 +614,66 @@ def create_app() -> Flask:
         live_location_state[token] = (datetime.utcnow(), location_label, latitude, longitude)
         return jsonify({"ok": True})
 
+    # ── Raspberry Pi frame ingestion ─────────────────────────────────────────
+
+    @app.route("/api/pi_frame", methods=["POST"])
+    def receive_pi_frame():
+        """Raspberry Pi posts raw JPEG frames here at target FPS.
+
+        The Pi must include its auth token in the ``X-Pi-Token`` request header.
+        Frames are stored in ``_pi_frame_buffer`` and served to MJPEG consumers.
+        """
+        if PI_AUTH_TOKEN:
+            token_header = request.headers.get("X-Pi-Token", "")
+            if token_header != PI_AUTH_TOKEN:
+                return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        jpg = request.data
+        if not jpg:
+            return jsonify({"ok": False, "error": "Empty body"}), 400
+
+        _pi_frame_buffer.push(jpg)
+        return jsonify({"ok": True}), 200
+
+    @app.route("/api/pi_status")
+    def pi_status():
+        """Returns whether the Pi is actively pushing frames."""
+        return jsonify({"live": _pi_frame_buffer.is_live})
+
+    # ── Live page & video feed ────────────────────────────────────────────────
+
     @app.route("/live")
     def live_page():
-        # Check if running on a server without camera access
-        is_production = os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
-        if is_production:
+        is_production = bool(
+            os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+        )
+        pi_ready = PI_AUTH_TOKEN or PI_STREAM_URL
+        if is_production and not pi_ready:
             return render_template(
                 "index.html",
-                error="Live video feed is not available in production (requires server camera access). Use the Recognize page instead."
+                error="Live video feed requires a Raspberry Pi. Set PI_AUTH_TOKEN in the server environment and run stream_client.py on your Pi."
             )
         token = secrets.token_urlsafe(16)
-        return render_template("live.html", threshold=SIMILARITY_THRESHOLD, live_token=token)
+        return render_template(
+            "live.html",
+            threshold=SIMILARITY_THRESHOLD,
+            live_token=token,
+            pi_stream_url=PI_STREAM_URL,
+            pi_push_mode=bool(PI_AUTH_TOKEN),
+        )
 
     @app.route("/video_feed")
     def video_feed():
-        # Check if running on a server without camera access
-        is_production = os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
-        if is_production:
-            return jsonify({"error": "Video feed not available in production"}), 503
+        is_production = bool(
+            os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+        )
+        pi_ready = PI_AUTH_TOKEN or PI_STREAM_URL
+        if is_production and not pi_ready:
+            return jsonify({"error": "Video feed requires PI_AUTH_TOKEN to be configured"}), 503
         token = request.args.get("token") or ""
-        return app.response_class(_gen_mjpeg(token), mimetype="multipart/x-mixed-replace; boundary=frame")
+        return app.response_class(
+            _gen_mjpeg(token), mimetype="multipart/x-mixed-replace; boundary=frame"
+        )
 
     # --- Disaster Prediction Routes ---
     def _classify_disaster(image_path: str) -> dict:

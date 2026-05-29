@@ -1,0 +1,12 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/",           "destination": "/index.html" },
+    { "source": "/register",   "destination": "/register.html" },
+    { "source": "/recognize",  "destination": "/recognize.html" },
+    { "source": "/live",       "destination": "/live.html" },
+    { "source": "/dashboard",  "destination": "/dashboard.html" },
+    { "source": "/disaster",   "destination": "/disaster.html" }
+  ]
+}

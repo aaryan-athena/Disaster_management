@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Disaster Management Suite</title>
+  <link rel="stylesheet" href="/css/style.css"/>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <span>DM</span>
+      <div class="brand-copy">
+        <div>Disaster Management Suite</div>
+        <small>Vision-powered response coordination</small>
+      </div>
+    </div>
+    <nav id="main-nav"></nav>
+  </div>
+</header>
+
+<main>
+  <div id="alert"></div>
+
+  <section class="panel hero-panel">
+    <div class="hero-content">
+      <div class="hero-copy">
+        <h2>Face Recognition for Disaster Relief</h2>
+        <p class="lead">Coordinate relief faster with real-time identification — register people once, recognise them anywhere.</p>
+        <div class="hero-badges">
+          <span class="badge">MediaPipe Detection</span>
+          <span class="badge">FaceNet Embeddings</span>
+          <span class="badge">Raspberry Pi Live Feed</span>
+        </div>
+        <div class="actions hero-actions" style="margin-top:24px;">
+          <a class="btn primary" href="/register.html">Register a Person</a>
+          <a class="btn" href="/recognize.html">Recognize via Camera</a>
+          <a class="btn" href="/disaster.html">Disaster AI</a>
+          <a class="btn" href="/dashboard.html">Dashboard</a>
+        </div>
+      </div>
+      <div class="highlight-card">
+        <h3>Key Features</h3>
+        <ul class="highlight-list">
+          <li>Unified registration with name, location &amp; gender</li>
+          <li>Browser geolocation captured on every detection</li>
+          <li>Live Raspberry Pi camera feed with pose detection</li>
+          <li>Gemini AI disaster image classification</li>
+          <li>Detection history dashboard</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <p>&copy; 2025 Disaster Management and Rehabilitation</p>
+    <small>Powered by MediaPipe · FaceNet · Cloudinary</small>
+  </div>
+</footer>
+
+<script src="/js/config.js"></script>
+<script src="/js/nav.js"></script>
+<script>
+  // Show error passed via ?error= query param (e.g. redirected from backend)
+  const params = new URLSearchParams(window.location.search);
+  const err = params.get('error');
+  if (err) {
+    document.getElementById('alert').innerHTML =
+      `<div class="flash error">${err}</div>`;
+  }
+</script>
+</body>
+</html>

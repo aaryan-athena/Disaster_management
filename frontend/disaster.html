@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Disaster AI — DM Suite</title>
+  <link rel="stylesheet" href="/css/style.css"/>
+  <style>
+    .upload-area {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .upload-area.drag-over { border-color: var(--primary); background: var(--surface-alt); }
+    .upload-area img { max-width: 100%; max-height: 220px; border-radius: 12px; margin-top: 12px; }
+    .severity-low    { background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:4px 12px;border-radius:999px;font-size:.85rem;font-weight:600; }
+    .severity-medium { background:#fffbeb;color:#92400e;border:1px solid #fde68a;padding:4px 12px;border-radius:999px;font-size:.85rem;font-weight:600; }
+    .severity-high   { background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:4px 12px;border-radius:999px;font-size:.85rem;font-weight:600; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <span>DM</span>
+      <div class="brand-copy"><div>Disaster Management Suite</div><small>Vision-powered response coordination</small></div>
+    </div>
+    <nav id="main-nav"></nav>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Disaster AI Classifier</h2>
+    <p class="hint">Upload a photo and Gemini AI will classify the disaster type and severity.</p>
+
+    <div class="upload-area" id="upload-area">
+      <p>Click to select or drag &amp; drop an image here</p>
+      <input type="file" id="file-input" accept="image/*" style="display:none;"/>
+      <img id="preview" style="display:none;" alt="Preview"/>
+    </div>
+
+    <div class="actions" style="margin-top:16px;">
+      <button class="btn primary" id="predict-btn" disabled>Predict Disaster Type</button>
+    </div>
+
+    <div id="loading" style="display:none;margin-top:16px;" class="hint">Analysing image…</div>
+
+    <div id="result" style="display:none;margin-top:20px;" class="panel" style="background:var(--surface-alt);">
+      <h3 id="res-type" style="font-size:1.4rem;margin:0 0 8px;"></h3>
+      <p><strong>Confidence:</strong> <span id="res-confidence"></span></p>
+      <p><strong>Severity:</strong> <span id="res-severity"></span></p>
+      <p id="res-description" style="margin-top:8px;color:var(--muted);border-left:3px solid var(--primary);padding-left:12px;"></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <p>&copy; 2025 Disaster Management and Rehabilitation</p>
+    <small>Powered by Google Gemini Vision</small>
+  </div>
+</footer>
+
+<script src="/js/config.js"></script>
+<script src="/js/nav.js"></script>
+<script>
+const EMOJIS = {
+  earthquake:'🏚️', flood:'🌊', wildfire:'🔥', hurricane:'🌀',
+  landslide:'⛰️', drought:'☀️', tornado:'🌪️', tsunami:'🌊',
+  volcanic_eruption:'🌋', none:'✅', unknown:'❓'
+};
+
+const uploadArea = document.getElementById('upload-area');
+const fileInput  = document.getElementById('file-input');
+const preview    = document.getElementById('preview');
+const predictBtn = document.getElementById('predict-btn');
+const loading    = document.getElementById('loading');
+const result     = document.getElementById('result');
+let selectedFile = null;
+
+uploadArea.addEventListener('click', () => fileInput.click());
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+uploadArea.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadArea.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+function handleFile(f) {
+  selectedFile = f;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    preview.src = ev.target.result;
+    preview.style.display = 'block';
+  };
+  reader.readAsDataURL(f);
+  predictBtn.disabled = false;
+  result.style.display = 'none';
+}
+
+predictBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  predictBtn.disabled = true;
+  loading.style.display = 'block';
+  result.style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  try {
+    const resp = await fetch(`${BACKEND_URL}/api/predict-disaster`, { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.error) { alert('Error: ' + data.error); return; }
+
+    const type = data.disaster_type || 'unknown';
+    document.getElementById('res-type').textContent = `${EMOJIS[type] || '❓'} ${type.replace(/_/g,' ')}`;
+    document.getElementById('res-confidence').textContent = `${Math.round((data.confidence || 0) * 100)}%`;
+    const sev = data.severity || 'unknown';
+    document.getElementById('res-severity').innerHTML = `<span class="severity-${sev}">${sev}</span>`;
+    document.getElementById('res-description').textContent = data.description || '';
+    result.style.display = 'block';
+  } catch (e) {
+    alert('Request failed: ' + e.message);
+  } finally {
+    loading.style.display = 'none';
+    predictBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
